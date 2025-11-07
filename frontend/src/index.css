@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+/* Add this block to your main global CSS file */
+
+@media print {
+    /* 1. Hide unwanted UI elements using the 'no-print' class */
+    .no-print, 
+    nav,        /* Hides the main sidebar/navigation */
+    aside, 
+    .header-bar {
+        display: none !important;
+    }
+
+    /* 2. Optimize the main content display */
+    body {
+        /* Remove body background and reset margins */
+        background-color: white !important; 
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* 3. Ensure the main invoice container takes full width and is clean */
+    .print-container {
+        width: 100% !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        
+        /* Force text colors to black and remove backgrounds for legibility */
+        background-color: white !important;
+        color: #000 !important;
+    }
+    
+    /* Force text color to black for all elements */
+    * {
+        color: #000 !important; 
+        box-shadow: none !important;
+    }
+    
+    /* Use this class for important borders that should stay visible */
+    .border-print {
+        border-color: #333 !important;
+    }
+}
