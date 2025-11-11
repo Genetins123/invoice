@@ -12,6 +12,7 @@ import Settings from './pages/Settings';
 import { AuthProvider } from './context/AuthContext';
 import LoginModal from './components/LoginModal'; 
 import AccountPage from './pages/Account';
+import Transactions from './pages/Transactions';
 
 
 // Helper function to map path from name
@@ -45,6 +46,8 @@ function App() {
 
             case 'Account':
                 return <AccountPage />
+            case 'Transactions':
+                return <Transactions />
 
             case 'Reports':
                 return <Reports />

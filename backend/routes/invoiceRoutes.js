@@ -9,6 +9,30 @@ const getNextInvoiceNumber = async () => {
     return lastInvoice ? lastInvoice.invoiceNumber + 1 : 1001; 
 };
 
+router.put('/:id', async (req, res) => {
+    try {
+        const invoiceId = req.params.id;
+        // The frontend sends { status: 'Paid' } in the body
+        const updates = req.body; 
+
+        // Find the document and update it
+        const updatedInvoice = await Invoice.findByIdAndUpdate(invoiceId, updates, {
+            new: true, // Return the updated document
+            runValidators: true // Ensure validations run
+        });
+
+        if (!updatedInvoice) {
+            return res.status(404).json({ message: 'Invoice not found' });
+        }
+
+        res.status(200).json({ message: 'Invoice updated successfully', invoice: updatedInvoice });
+
+    } catch (error) {
+        console.error('Invoice Update Error:', error);
+        res.status(500).json({ message: 'Error updating invoice status', error: error.message });
+    }
+});
+
 // 1. POST /api/invoices: Create New Invoice
 router.post('/', async (req, res) => {
     try {

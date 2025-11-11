@@ -11,7 +11,7 @@ const clientRoutes = require('./routes/clientRoutes');
 const invoiceRoutes = require('./routes/invoiceRoutes'); 
 const userRoutes = require('./routes/userRoutes'); 
 const accountRoutes = require('./routes/accountRoutes');
-
+const transactionRoutes = require('./routes/transactionRoutes'); // ⭐ NEW IMPORT
 
 const app = express();
 
@@ -46,6 +46,7 @@ app.use('/api/products', productRoutes);
 app.use('/api/clients', clientRoutes);   
 app.use('/api/invoices', invoiceRoutes); 
 app.use('/api/accounts', accountRoutes);
+app.use('/api/transactions', transactionRoutes); // ⭐ NEW ROUTE MOUNTED
 // --- 5. Start the Server ---
 const PORT = process.env.PORT || 5000;
 

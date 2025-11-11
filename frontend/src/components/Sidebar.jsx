@@ -1,6 +1,6 @@
 import React from 'react';
 // Added BanknotesIcon for the Payments link
-import { ChartPieIcon, ArchiveBoxIcon, UserGroupIcon, ReceiptPercentIcon, DocumentTextIcon, Cog6ToothIcon, BanknotesIcon } from '@heroicons/react/24/outline';
+import { ChartPieIcon, ArchiveBoxIcon, UserGroupIcon,ArrowsRightLeftIcon, ReceiptPercentIcon, DocumentTextIcon, Cog6ToothIcon, BanknotesIcon } from '@heroicons/react/24/outline';
 
 // Added 'Payments' item
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
     { name: 'Clients', icon: UserGroupIcon },
     { name: 'Products', icon: ArchiveBoxIcon },
     { name: 'Account', icon: BanknotesIcon }, // <-- New Navigation Item
+    { name: 'Transactions', icon: ArrowsRightLeftIcon }, // <-- New Navigation Item
 
     { name: 'Reports', icon: DocumentTextIcon },
     { name: 'Settings', icon: Cog6ToothIcon },

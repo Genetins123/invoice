@@ -1,41 +1,52 @@
-// models/Account.js
+// backend/models/Account.js
 
 const mongoose = require('mongoose');
 
-// Define the schema for the Account
 const AccountSchema = new mongoose.Schema({
-    // Account No (Example: ACC1234567890)
     accountNo: {
         type: String,
         required: [true, 'Account number is required'],
-        unique: true, // Ensures no two accounts have the same number
+        unique: true,
         trim: true
     },
-    // Name (Example: Company Sales Account)
     name: {
         type: String,
         required: [true, 'Account name is required'],
         trim: true
     },
-    // Balance (Example: 98450.00)
-    balance: {
+    balance: { 
         type: Number,
         required: [true, 'Initial Balance is required'],
         default: 0,
-        min: 0 // Balance should not be negative
+        min: 0 
     },
-    // Note/Description
     note: {
         type: String,
         trim: true,
         default: ''
     },
-    // Timestamp for creation
     createdAt: {
         type: Date,
         default: Date.now
     }
 });
 
-// Create and export the Account Model
+/**
+ * STATIC METHOD: updateAccountBalance
+ * Safely adjusts the account balance using the MongoDB $inc operator.
+ */
+AccountSchema.statics.updateAccountBalance = async function(accountId, amount, type) {
+    const change = type === 'Income' ? amount : -amount; // Income adds, Expense subtracts
+
+    try {
+        await this.findByIdAndUpdate(accountId, {
+            $inc: { balance: change } 
+        });
+        console.log(`[Transaction] Account ${accountId} balance updated by ${change}.`);
+    } catch (err) {
+        console.error(`Error updating account balance for ${accountId}: ${err.message}`);
+    }
+};
+
+// Compile and export the Account Model
 module.exports = mongoose.model('Account', AccountSchema);
