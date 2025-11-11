@@ -11,6 +11,7 @@ import Reports from './pages/Reports';
 import Settings from './pages/Settings';
 import { AuthProvider } from './context/AuthContext';
 import LoginModal from './components/LoginModal'; 
+import AccountPage from './pages/Account';
 
 
 // Helper function to map path from name
@@ -42,10 +43,14 @@ function App() {
             case 'Invoice':
                 return <InvoiceList setIsDetailsView={setIsDetailsView} />
 
+            case 'Account':
+                return <AccountPage />
+
             case 'Reports':
                 return <Reports />
             case 'Settings':
                 return <Settings />
+            
 
             default:
                 return <Dashboard />;
