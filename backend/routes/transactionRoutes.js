@@ -1,14 +1,17 @@
 const express = require('express');
-// ⭐ IMPORT BOTH FUNCTIONS
-const { createTransaction, getTransactions } = require('../controllers/transactionController'); 
+// Import all three controller functions
+const { createTransaction, getTransactions, deleteTransaction } = require('../controllers/transactionController'); 
 
 const router = express.Router();
 
+// Route: /api/transactions
 router.route('/')
-    // ⭐ NEW: Handle GET requests to fetch the list of transactions
-    .get(getTransactions) 
-    
-    // Existing: Handle POST requests to create a new transaction
-    .post(createTransaction); 
+    .get(getTransactions) // GET all transactions
+    .post(createTransaction); // POST a new transaction
+
+// Route: /api/transactions/:id
+router.route('/:id')
+    // DELETE a specific transaction
+    .delete(deleteTransaction); 
 
 module.exports = router;

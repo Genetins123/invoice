@@ -179,12 +179,7 @@ const Reports = () => {
                                     {/* Action Buttons */}
                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                                         {/* ... (Print, Edit, Details buttons remain the same) ... */}
-                                        <button className="text-green-600 hover:text-green-900 bg-green-100 py-1 px-3 rounded-md">
-                                            🖨️ Print
-                                        </button>
-                                        <button className="text-blue-600 hover:text-blue-900 bg-blue-100 py-1 px-3 rounded-md">
-                                            ✏️ Edit
-                                        </button>
+                                        
                                         <button 
                                             onClick={() => handlePayClick(invoice)} // Use the new handler
                                             disabled={invoice.status !== 'Due'} // Disable if already paid

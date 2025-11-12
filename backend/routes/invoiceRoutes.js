@@ -9,6 +9,31 @@ const getNextInvoiceNumber = async () => {
     return lastInvoice ? lastInvoice.invoiceNumber + 1 : 1001; 
 };
 
+
+router.delete('/:id', async (req, res) => {
+    try {
+        const invoiceId = req.params.id;
+
+        // NOTE ON SECURITY: In a real application, you might want to prevent 
+        // deletion if the invoice status is 'Paid' to avoid accounting issues.
+        
+        const deletedInvoice = await Invoice.findByIdAndDelete(invoiceId);
+
+        if (!deletedInvoice) {
+            return res.status(404).json({ message: 'Invoice not found' });
+        }
+
+        // Successfully deleted the invoice
+        res.status(200).json({ 
+            message: 'Invoice deleted successfully', 
+            invoice: deletedInvoice 
+        });
+
+    } catch (error) {
+        console.error('Invoice Deletion Error:', error);
+        res.status(500).json({ message: 'Error deleting invoice', error: error.message });
+    }
+});
 router.put('/:id', async (req, res) => {
     try {
         const invoiceId = req.params.id;

@@ -112,9 +112,10 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
           <div className="grid grid-cols-2 gap-8 text-sm">
             {/* Company Details (Dummy data) */}
             <div className="p-4 border-r border-gray-200 border-print">
-              <h4 className="text-lg font-bold text-gray-700 mb-2">Company Name</h4>
-              <p>Phone: 00000000</p>
-              <p>Email: iv@example.com</p>
+              <h4 className="text-lg font-bold text-gray-700 mb-2">ABC Company</h4>
+              <p>Phone: 410-987-89-60</p>
+              <p>Address: 412 Example South Street</p>
+              <p>Email: support@ultimatekode.com</p>
               <p>Business Number: 0000</p>
             </div>
 
