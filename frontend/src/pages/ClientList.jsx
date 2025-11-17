@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Loader2, AlertTriangle, Edit, Trash2, Plus } from 'lucide-react';
+// import ClientForm from '../components/ClientForm';
+import { useAuth } from '../context/AuthContext'; // NEW: Import Auth
 
 // --- Configuration ---
 const API_URL = "http://localhost:5000/api/clients";
@@ -8,8 +11,11 @@ const CustomModal = ({ isOpen, title, message, onClose, onConfirm, type = 'alert
     if (!isOpen) return null;
 
     const isConfirm = type === 'confirm';
-    const borderColor = isConfirm ? 'border-yellow-500' : 'border-red-500';
-    const textColor = isConfirm ? 'text-yellow-800' : 'text-red-800';
+    // Changed 'error' type modal to be red, and 'confirm' to be yellow for distinct visual cues
+    const isError = type === 'error' || type === 'auth_error'; 
+    const borderColor = isConfirm ? 'border-yellow-500' : isError ? 'border-red-500' : 'border-indigo-500';
+    const textColor = isConfirm ? 'text-yellow-800' : isError ? 'text-red-800' : 'text-indigo-800';
+    const primaryButtonColor = isConfirm ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-indigo-600 text-white hover:bg-indigo-700';
 
     return (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50 p-4">
@@ -21,16 +27,16 @@ const CustomModal = ({ isOpen, title, message, onClose, onConfirm, type = 'alert
                         {isConfirm && (
                             <button
                                 onClick={onClose}
-                                className="px-4 py-2 rounded-lg font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition duration-150"
+                                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300 transition-colors"
                             >
                                 Cancel
                             </button>
                         )}
                         <button
-                            onClick={onConfirm || onClose} // Use onConfirm for confirm type, otherwise use onClose
-                            className={`px-4 py-2 rounded-lg font-semibold transition duration-150 ${isConfirm ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
+                            onClick={isConfirm ? onConfirm : onClose}
+                            className={`px-4 py-2 text-sm font-medium rounded-lg shadow-md transition-colors ${primaryButtonColor}`}
                         >
-                            {isConfirm ? 'Delete' : 'OK'}
+                            {isConfirm ? 'Confirm Delete' : 'Close'}
                         </button>
                     </div>
                 </div>
@@ -38,299 +44,184 @@ const CustomModal = ({ isOpen, title, message, onClose, onConfirm, type = 'alert
         </div>
     );
 };
-// --- End Modal Component ---
 
 
-// ==========================================================
-// Component A: AddClient Form (Moved into this file)
-// ==========================================================
-const AddClient = ({ goBack }) => {
-    // Initial state setup
-    const initialState = {
-        name: '', email: '', address: '', phone: '', website: '', businessNumber: '',
-    };
-    const [formData, setFormData] = useState(initialState);
-    const [isLoading, setIsLoading] = useState(false);
-    const [modal, setModal] = useState({
-        isOpen: false,
-        title: '',
-        message: '',
-        type: 'success' // 'success' or 'error'
+const ClientList = () => {
+    const { token } = useAuth(); // Access the token for API calls
+    const [view, setView] = useState('list');
+    const [clients, setClients] = useState([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState(null); // Used for initial fetch error
+    const [editClientData, setEditClientData] = useState(null);
+
+    // Modal state for success/error messages not related to initial fetch
+    const [messageModal, setMessageModal] = useState({ 
+        isOpen: false, 
+        title: '', 
+        message: '', 
+        type: 'alert' 
     });
 
-    const handleChange = (e) => {
-        const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
-    };
+    // Modal state for deletion confirmation
+    const [deleteModal, setDeleteModal] = useState({ 
+        isOpen: false, 
+        clientToDelete: null 
+    });
 
-    const closeModal = () => {
-        setModal(prev => ({ ...prev, isOpen: false }));
-    };
-
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-        setIsLoading(true);
-
-        // Basic validation check
-        if (!formData.name || !formData.email || !formData.businessNumber) {
-            setModal({
-                isOpen: true,
-                title: 'Validation Error',
-                message: "Please fill in Client Name, Email, and Business Number.",
-                type: 'error'
-            });
+    // --- CORE FUNCTION: Fetch Clients ---
+    const fetchClients = useCallback(async () => {
+        if (!token) {
+            setError("Authentication required to fetch client data. Please log in.");
             setIsLoading(false);
             return;
         }
 
+        setIsLoading(true);
+        setError(null);
+        
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, // ADDED AUTHORIZATION HEADER
+        };
+
         try {
-            const response = await fetch(API_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(formData),
-            });
+            const response = await fetch(API_URL, { headers }); 
 
             if (!response.ok) {
+                 if (response.status === 401 || response.status === 403) {
+                    throw new Error("Session expired or unauthorized. Please log in again.");
+                }
                 const errorData = await response.json();
                 throw new Error(errorData.message || `HTTP error! Status: ${response.status}`);
             }
 
-            const savedClient = await response.json();
-
-            setModal({
-                isOpen: true,
-                title: 'Success!',
-                message: `Client "${savedClient.name}" added successfully.`,
-                type: 'success'
-            });
-
-            // Clear the form after success
-            setFormData(initialState);
-
-        } catch (error) {
-            setModal({
-                isOpen: true,
-                title: 'Failed to Save Client',
-                message: `Error: ${error.message || 'An unknown network error occurred. Ensure your backend server is running.'}`,
-                type: 'error'
-            });
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const renderInput = (label, name, type = 'text') => (
-        <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor={name}>
-                {label}
-            </label>
-            <input
-                type={type}
-                id={name}
-                name={name}
-                value={formData[name]}
-                onChange={handleChange}
-                required={['name'].includes(name)} 
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm transition-colors"
-            />
-        </div>
-    );
-
-    return (
-        <div className="bg-gray-100 min-h-screen p-4">
-            <div className="bg-white p-6 rounded-lg shadow-xl max-w-4xl mx-auto my-8">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-3">Add New Client</h2>
-                <form onSubmit={handleSubmit}>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                        {renderInput('Client Name', 'name')}
-                        {renderInput('Email Address', 'email', 'email')}
-                        {renderInput('Business Number', 'businessNumber')}
-                        {renderInput('Phone Number', 'phone', 'tel')}
-                        {renderInput('Address', 'address')}
-                        {renderInput('Website', 'website', 'url')} 
-                    </div>
-
-                    <div className="flex justify-end space-x-4 mt-8 pt-4 border-t">
-                        <button
-                            type="button"
-                            onClick={goBack}
-                            className="px-4 py-2 bg-gray-200 text-gray-700 font-semibold rounded-md hover:bg-gray-300 transition-colors shadow-md"
-                            disabled={isLoading}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            className="px-6 py-2 bg-indigo-600 text-white font-semibold rounded-md hover:bg-indigo-700 transition-colors shadow-lg disabled:bg-indigo-400"
-                            disabled={isLoading}
-                        >
-                            {isLoading ? 'Saving...' : 'Save Client'}
-                        </button>
-                    </div>
-                </form>
-            </div>
-            {/* Modal for Success/Error Messages */}
-            <CustomModal
-                isOpen={modal.isOpen}
-                title={modal.title}
-                message={modal.message}
-                onClose={closeModal}
-                type={modal.type}
-            />
-        </div>
-    );
-};
-
-
-// ==========================================================
-// Component B: ClientList (Main Component)
-// ==========================================================
-const ClientList = () => {
-    const [clients, setClients] = useState([]);
-    const [view, setView] = useState('list'); // 'list', 'add', or 'edit'
-    const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [deleteModal, setDeleteModal] = useState({ isOpen: false, clientToDelete: null });
-    const [messageModal, setMessageModal] = useState({ isOpen: false, title: '', message: '', type: 'alert' });
-
-    // --- Data Fetching Logic (Read) ---
-    const fetchClients = useCallback(async () => {
-        setIsLoading(true);
-        setError(null);
-        try {
-            const response = await fetch(API_URL);
-            if (!response.ok) {
-                throw new Error(`Failed to fetch clients: ${response.statusText}`);
-            }
             const data = await response.json();
             setClients(data);
+
         } catch (err) {
-            setError(err.message);
+            setError(`Data loading failed: ${err.message}.`);
         } finally {
             setIsLoading(false);
         }
-    }, []);
+    }, [token]);
 
-    // Fetch data on component mount
     useEffect(() => {
         fetchClients();
     }, [fetchClients]);
 
+    // --- Action Handlers ---
 
-    // --- Delete Logic (Delete) ---
+    const handleEditStart = (client) => {
+        setEditClientData(client);
+        setView('edit');
+    };
 
-    // 1. Open the confirmation modal
-    const handleDeleteClick = (client) => {
+    const handleGoBack = () => {
+        setEditClientData(null);
+        setView('list');
+        fetchClients(); // Refresh data when returning to list
+    };
+
+    const handleDeleteStart = (client) => {
         setDeleteModal({ isOpen: true, clientToDelete: client });
     };
 
-    // 2. Perform the deletion
     const confirmDelete = async () => {
         const client = deleteModal.clientToDelete;
-        if (!client || !client._id) return;
+        if (!client || !token) {
+             setDeleteModal({ isOpen: false, clientToDelete: null });
+             // Show error message if token is missing at this stage
+             setMessageModal({ 
+                 isOpen: true, 
+                 title: 'Authentication Error', 
+                 message: "Session expired or unauthorized. Please log in again.", 
+                 type: 'error' 
+             });
+            return;
+        }
 
-        setDeleteModal({ isOpen: false, clientToDelete: null });
         setIsLoading(true);
+        setDeleteModal({ isOpen: false, clientToDelete: null }); // Close confirmation modal
+        
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, // ADDED AUTHORIZATION HEADER
+        };
 
         try {
-            const response = await fetch(`${API_URL}/${client._id}`, {
+            const response = await fetch(`${API_URL}/${client._id}`, { 
                 method: 'DELETE',
+                headers: headers 
             });
 
             if (!response.ok) {
-                throw new Error(`Failed to delete client: ${response.statusText}`);
+                 if (response.status === 401 || response.status === 403) {
+                    throw new Error("Session expired or unauthorized to delete. Please log in again.");
+                }
+                const errorData = await response.json();
+                throw new Error(errorData.message || `Failed to delete client (Status: ${response.status}).`);
             }
 
-            // Remove the client from the local state immediately
-            setClients(prev => prev.filter(c => c._id !== client._id));
-
-            setMessageModal({
-                isOpen: true,
-                title: 'Deleted!',
-                message: `${client.name} has been successfully deleted.`,
-                type: 'alert'
+            // Success: Show success message and refresh list
+            setMessageModal({ 
+                isOpen: true, 
+                title: 'Success', 
+                message: `Client ${client.name} successfully deleted.`, 
+                type: 'alert' 
             });
+            fetchClients(); 
 
         } catch (err) {
-            setMessageModal({
-                isOpen: true,
-                title: 'Deletion Failed',
-                message: `Could not delete client: ${err.message}`,
-                type: 'error'
+            setMessageModal({ 
+                isOpen: true, 
+                title: 'Deletion Failed', 
+                message: err.message, 
+                type: 'error' 
             });
         } finally {
             setIsLoading(false);
         }
     };
-
-    // Placeholder for Edit (Update) - In a real app, this would navigate to the edit form
-    const handleEditClick = (client) => {
-        // Here you would likely set the view to 'edit' and pass the client data
-        // setView('edit'); 
-        setMessageModal({
-            isOpen: true,
-            title: 'Edit Feature',
-            message: `Ready to edit client: ${client.name}. This feature needs a dedicated Edit form component.`,
-            type: 'alert'
-        });
-    };
     
-    // Function passed to AddClient to return to the list view after save
-    const handleGoBack = () => {
-        setView('list');
-        // Re-fetch data to show the newly added client
-        fetchClients(); 
-    };
+    // --- RENDER SECTION ---
 
-    // --- View Rendering ---
-
-    if (view === 'add') {
-        // Note: The goBack function now also triggers a data fetch
-        return <AddClient goBack={handleGoBack} />;
-    }
-    
-    if (isLoading && clients.length === 0) {
+    if (view === 'add' || view === 'edit') {
+        // Pass token to ClientForm so it can use the Authorization header for POST/PUT
         return (
-            <div className="flex justify-center items-center h-screen bg-gray-50">
-                <p className="text-xl text-indigo-600">Loading clients...</p>
-            </div>
+            <ClientForm 
+                onGoBack={handleGoBack} 
+                initialData={editClientData} 
+                token={token} // Pass token to the form
+            />
         );
     }
 
-    // Render the Client List view
+    // NEW: Standardized Error/Loading Display for List View
+    if (isLoading) {
+        return <div className="p-8 text-center text-blue-600 font-medium">Loading clients...</div>;
+    }
+
+    if (error) {
+        return <div className="p-8 text-center text-red-600 font-medium">Error: {error}</div>;
+    }
+
     return (
-        <div className="p-4 sm:p-8 bg-gray-50 flex-1 min-h-screen">
-            <div className="flex justify-between items-center mb-6 max-w-7xl mx-auto">
-                <h2 className="text-3xl font-semibold text-gray-900">Client List</h2>
-                
-                {/* Button to switch state to 'add' */}
-                <button 
+        <div className="p-8 bg-gray-50 flex-1">
+            <div className="flex justify-between items-center mb-6">
+                <h1 className="text-3xl font-bold text-gray-900">Client List</h1>
+                <button
                     onClick={() => setView('add')}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow-lg transition-colors flex items-center space-x-2"
+                    className="flex items-center bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg shadow-md transition-colors"
                 >
-                    {/* Inline SVG for plus icon */}
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path></svg>
-                    <span>Add New Client</span>
+                    <Plus size={20} className="mr-2" /> Add New Client
                 </button>
             </div>
 
-            {error && (
-                <div className="max-w-7xl mx-auto bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6 rounded-md" role="alert">
-                    <p className="font-bold">Error fetching data</p>
-                    <p>{error}</p>
-                </div>
-            )}
-
-            <p className="text-gray-500 mb-6 max-w-7xl mx-auto">Showing {clients.length} clients</p>
-
-            {/* Client Table Container */}
-            <div className="bg-white p-6 rounded-xl shadow-2xl max-w-7xl mx-auto overflow-x-auto">
+            <div className="bg-white rounded-xl shadow-2xl overflow-x-auto border border-gray-100">
                 <table className="min-w-full divide-y divide-gray-200">
                     <thead className="bg-gray-50">
                         <tr>
-                            {['Name', 'Email', 'Address', 'Phone', 'Website', 'Business Number'].map((header) => (
+                            {['Client Name', 'Email', 'Business Number', 'Phone', 'Actions'].map((header) => (
                                 <th 
                                     key={header} 
                                     className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
@@ -338,43 +229,42 @@ const ClientList = () => {
                                     {header}
                                 </th>
                             ))}
-                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th> 
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
                         {clients.map((client) => (
-                            <tr key={client._id || client.name} className="hover:bg-gray-50 transition-colors">
-                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">{client.name}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.email}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.address}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.phone}</td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {client.website ? <a href={client.website} target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:text-indigo-800 underline">{client.website}</a> : 'N/A'}
+                            <tr key={client._id} className="hover:bg-gray-50 transition-colors">
+                                <td className="px-6 py-4 whitespace-nowrap font-medium text-gray-900">
+                                    {client.name}
                                 </td>
-                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{client.businessNumber}</td>
-                                
-                                {/* Action Buttons matching the soft, rounded design */}
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {client.email}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {client.businessNumber}
+                                </td>
+                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                    {client.phone}
+                                </td>
                                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
                                     <button 
-                                        onClick={() => handleEditClick(client)}
-                                        className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all duration-200 bg-blue-100 text-blue-700 hover:bg-blue-200"
+                                        onClick={() => handleEditStart(client)}
+                                        className="text-indigo-600 hover:text-indigo-900 bg-indigo-100 py-2 px-3 rounded-lg text-xs transition-colors font-semibold shadow-sm flex items-center"
                                     >
-                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path></svg>
-                                        Edit
+                                        <Edit size={14} className="mr-1" /> Edit
                                     </button>
                                     <button 
-                                        onClick={() => handleDeleteClick(client)}
-                                        className="inline-flex items-center px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition-all duration-200 bg-red-100 text-red-700 hover:bg-red-200"
+                                        onClick={() => handleDeleteStart(client)}
+                                        className="text-red-600 hover:text-red-900 bg-red-100 py-2 px-3 rounded-lg text-xs transition-colors font-semibold shadow-sm flex items-center"
                                     >
-                                        <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                                        Delete
+                                        <Trash2 size={14} className="mr-1" /> Delete
                                     </button>
                                 </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
-                {clients.length === 0 && !isLoading && (
+                {clients.length === 0 && !isLoading && !error && (
                     <div className="text-center py-10 text-gray-500">
                         No clients found. Click "Add New Client" to get started!
                     </div>

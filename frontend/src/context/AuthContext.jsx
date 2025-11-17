@@ -1,4 +1,5 @@
 import React, { createContext, useState, useContext } from 'react';
+// REMOVED: import { useNavigate } from 'react-router-dom'; 
 
 const AuthContext = createContext();
 
@@ -6,6 +7,8 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
     
+    // REMOVED: const navigate = useNavigate(); 
+
     const [user, setUser] = useState(() => {
         try {
             const storedUser = localStorage.getItem('user');
@@ -26,18 +29,25 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = () => {
+        // Clear local storage and state
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         setToken(null);
         setUser(null);
+        
+        // REMOVED: navigate('/login'); 
+        
+        // **THIS IS THE CRITICAL PART OF THE FIX:** // Force a full page reload. This clears all local component state
+        // and forces the app to re-check the empty token, which should 
+        // trigger your route guard to redirect to the login page.
+        window.location.reload(); 
     };
 
-    // ⭐️ CORE FUNCTION: Updates user data both locally and on the server
+    // CORE FUNCTION: Updates user data both locally and on the server
     const updateUser = async (newUserData) => {
         
         // 1. Pre-flight check: ensure user and ID are available
         if (!user || !user._id) {
-            // Throw error if ID is missing (causes the red message in Settings.js)
             throw new Error("User ID not available. Please log in again.");
         }
         
@@ -47,10 +57,9 @@ export const AuthProvider = ({ children }) => {
         try {
             // 2. Execute the PUT request
             const response = await fetch(url, { 
-                method: 'PUT', // Hits router.put('/:id', userController.updateUser)
+                method: 'PUT', 
                 headers: {
                     'Content-Type': 'application/json',
-                    // Authorization header is intentionally removed to match the unprotected backend
                 },
                 body: JSON.stringify(newUserData),
             });
@@ -58,13 +67,10 @@ export const AuthProvider = ({ children }) => {
             if (!response.ok) {
                 let errorData = {};
                 try {
-                    // Try to get structured error data if server sent JSON (e.g., "User not found")
                     errorData = await response.json();
                 } catch (e) {
-                    // Fallback for non-JSON error (e.g., the 404/500 plain text error)
                     throw new Error(`Profile update failed. Server status: ${response.status}.`);
                 }
-                // Throw the error message from the server
                 throw new Error(errorData.message || "Failed to update profile on the server.");
             }
 

@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Eye, Printer, Trash2, X } from 'lucide-react';
+// NEW: Import useAuth hook and destructure 'token' instead of 'isAuthenticated'
+import { useAuth } from '../context/AuthContext'; 
 
 const API_URL = 'http://localhost:5000/api/transactions'; 
 
-// --- Transaction Detail Modal Component ---
+// --- Transaction Detail Modal Component (No changes needed) ---
 const TransactionDetailModal = ({ transaction, onClose }) => {
     if (!transaction) return null;
 
@@ -126,6 +128,11 @@ const TransactionDetailModal = ({ transaction, onClose }) => {
 
 // --- Main Transactions Component ---
 const Transactions = () => {
+    // NEW: Use Auth hook to get the token
+    const { token } = useAuth(); 
+
+    // REMOVED AUTHENTICATION GATE (if (!isAuthenticated) return ... block)
+    
     const [transactions, setTransactions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -135,17 +142,36 @@ const Transactions = () => {
     const [selectedTransaction, setSelectedTransaction] = useState(null);
 
 
-    // --- Fetch Transactions (Mock Data for demonstration purposes if API fails) ---
+    // --- Fetch Transactions ---
     const fetchTransactions = async () => {
+        // NEW: Check for token here
+        if (!token) {
+            setError("Authentication required to view transactions. Please log in.");
+            setLoading(false);
+            return; // Stop execution
+        }
+
         setLoading(true);
         setError(null);
         let fetchedData = [];
+
+        // NEW: Prepare headers with Authorization
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, // ADDED AUTHORIZATION HEADER
+        };
+        
         try {
-            const response = await fetch(API_URL);
+            // Use headers in fetch call
+            const response = await fetch(API_URL, { headers }); 
             const result = await response.json();
 
             if (!response.ok || !result.success) {
-                 // Fallback to mock data if API call fails
+                // If 401/403, provide specific message
+                if (response.status === 401 || response.status === 403) {
+                    throw new Error("Session expired or unauthorized. Please log in again.");
+                }
+                // Fallback to mock data if API call fails
                 throw new Error(result.error || "Failed to fetch transactions. Loading mock data instead.");
             }
             fetchedData = result.data;
@@ -153,7 +179,7 @@ const Transactions = () => {
             console.error(err.message);
             setError(err.message);
             
-            // Mock Data for consistent display if backend is unavailable
+            // Mock Data for consistent display if backend is unavailable or unauthenticated
             fetchedData = [
                 { _id: '61a2c3f4e5d6c7b8a901d2e3', date: '2025-11-04', type: 'Expense', amount: 55.00, accountId: { name: 'Company Sales Account' }, clientName: 'Stephen L. Turner', paymentMethod: 'Card', category: 'Software', note: 'Monthly subscription fee.' },
                 { _id: '61a2c3f4e5d6c7b8a901d2e4', date: '2025-11-04', type: 'Income', amount: 100.00, accountId: { name: 'Company Sales Account' }, vendorName: 'Gertrud Whickman', paymentMethod: 'Cash', category: 'Sales', note: 'Payment for invoice #1075' },
@@ -168,7 +194,7 @@ const Transactions = () => {
 
     useEffect(() => {
         fetchTransactions();
-    }, []);
+    }, [token]); // Rerun fetch when token changes
 
     const formatCurrency = (amount) => {
         return `$ ${parseFloat(amount).toFixed(2)}`;
@@ -193,6 +219,12 @@ const Transactions = () => {
             return; // User cancelled the operation
         }
 
+        // NEW: Check for token
+        if (!token) {
+            setError("Authentication required to delete a transaction.");
+            return;
+        }
+
         try {
             setLoading(true); // Indicate processing
             
@@ -200,6 +232,7 @@ const Transactions = () => {
                 method: 'DELETE',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`, // ADDED AUTHORIZATION HEADER
                 },
             });
 
@@ -242,7 +275,9 @@ const Transactions = () => {
             </h2>
 
             {error && (
-                 <div className="text-red-600 bg-red-100 border border-red-400 p-4 rounded-lg text-center mx-auto max-w-lg mb-6">Error: {error}</div>
+                    // This div will now display the authentication error if token is missing,
+                    // as the logic was moved into fetchTransactions.
+                   <div className="text-red-600 bg-red-100 border border-red-400 p-4 rounded-lg text-center mx-auto max-w-lg mb-6">Error: {error}</div>
             )}
 
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 space-y-3 sm:space-y-0">
@@ -264,7 +299,7 @@ const Transactions = () => {
                         </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-100">
-                        {transactions.length === 0 ? (
+                        {transactions.length === 0 && !error ? ( // Check error state here too
                             <tr>
                                 <td colSpan="7" className="px-6 py-12 text-center text-lg text-gray-500">
                                     No transactions recorded yet.

@@ -1,46 +1,67 @@
-// src/pages/Reports.jsx (Updated for Payment Modal)
+// src/pages/Reports.jsx (Updated for Payment Modal & Auth Check)
 import React, { useState, useEffect, useMemo } from 'react';
-import PaymentModal from '../components/PaymentModal'; // NEW IMPORT
+import PaymentModal from '../components/PaymentModal';
+import { useAuth } from '../context/AuthContext'; // NEW IMPORT for Auth
 
 const API_INVOICES_URL = 'http://localhost:5000/api/invoices';
 const API_ACCOUNTS_URL = 'http://localhost:5000/api/accounts'; // Used for the dropdown
 
 const Reports = () => {
+    const { token } = useAuth(); // Access the token for API calls
+    
     const [allInvoices, setAllInvoices] = useState([]);
-    const [allAccounts, setAllAccounts] = useState([]); // NEW state for accounts
+    const [allAccounts, setAllAccounts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
     
-    // NEW state for modal control
+    // State for modal control
     const [showPaymentModal, setShowPaymentModal] = useState(false);
     const [invoiceToPay, setInvoiceToPay] = useState(null);
 
     // --- Fetch Invoices and Accounts ---
     const fetchData = async () => {
+        if (!token) {
+            setError("Authentication required to fetch reports data. Please log in.");
+            setLoading(false);
+            return;
+        }
+
         setLoading(true);
         setError(null);
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`, // ADDED AUTHORIZATION HEADER
+        };
+
         try {
             // 1. Fetch Invoices
-            const invoiceResponse = await fetch(API_INVOICES_URL);
+            const invoiceResponse = await fetch(API_INVOICES_URL, { headers });
             const invoiceResult = await invoiceResponse.json();
             if (!invoiceResponse.ok || !Array.isArray(invoiceResult)) {
+                if (invoiceResponse.status === 401 || invoiceResponse.status === 403) {
+                    throw new Error("Session expired or unauthorized. Please log in again.");
+                }
                 throw new Error("Failed to fetch invoices list.");
             }
             setAllInvoices(invoiceResult); 
 
             // 2. Fetch Accounts
-            const accountResponse = await fetch(API_ACCOUNTS_URL);
+            const accountResponse = await fetch(API_ACCOUNTS_URL, { headers });
             const accountResult = await accountResponse.json();
-            // Assuming the Account API returns { success: true, data: [...] } as per the previous discussion
+            // Assuming the Account API returns { success: true, data: [...] }
             if (!accountResponse.ok || !accountResult.success) {
-                 throw new Error("Failed to fetch account list.");
+                if (accountResponse.status === 401 || accountResponse.status === 403) {
+                    throw new Error("Session expired or unauthorized. Please log in again.");
+                }
+                throw new Error("Failed to fetch account list.");
             }
             setAllAccounts(accountResult.data); 
 
         } catch (err) {
-            setError(`Data loading failed: ${err.message}. Check your server connections.`);
+            setError(`Data loading failed: ${err.message}.`);
             console.error("Fetching error:", err);
             setAllInvoices([]);
             setAllAccounts([]);
@@ -51,9 +72,9 @@ const Reports = () => {
 
     useEffect(() => {
         fetchData();
-    }, []); 
+    }, [token]); // Re-run fetch when token changes (login/logout)
     
-    // --- Handlers for Payment Modal ---
+    // --- Handlers for Payment Modal (unchanged) ---
     const handlePayClick = (invoice) => {
         setInvoiceToPay(invoice);
         setShowPaymentModal(true);
@@ -73,7 +94,7 @@ const Reports = () => {
     // --- Filtering Logic (useMemo remains the same) ---
     const filteredInvoices = useMemo(() => {
         if (!allInvoices || allInvoices.length === 0) return [];
-        // ... (rest of filtering logic, useMemo, and handleFilter function from previous response) ...
+        
         let filtered = allInvoices;
         
         const start = startDate ? new Date(startDate) : null;
@@ -99,6 +120,8 @@ const Reports = () => {
         // Simple alert to confirm filter logic is triggered
         alert(`Filtered to ${filteredInvoices.length} records.`);
     };
+    
+    // --- Conditional Rendering for Loading and Error ---
 
     if (loading) {
         return <div className="p-8 text-center text-blue-600">Loading data...</div>;
@@ -155,9 +178,9 @@ const Reports = () => {
                     <tbody className="bg-white divide-y divide-gray-200">
                         {filteredInvoices.length === 0 ? (
                              <tr>
-                                <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
-                                    {allInvoices.length === 0 ? "No invoices found in the system." : "No invoices match the date filter criteria."}
-                                </td>
+                                 <td colSpan="5" className="px-6 py-4 text-center text-gray-500">
+                                     {allInvoices.length === 0 ? "No invoices found in the system." : "No invoices match the date filter criteria."}
+                                 </td>
                             </tr>
                         ) : (
                             filteredInvoices.map((invoice) => (
@@ -187,9 +210,9 @@ const Reports = () => {
                                         >
                                             💲 Pay
                                         </button>
-                                        <button className="text-gray-600 hover:text-gray-900 bg-gray-100 py-1 px-3 rounded-md">
+                                        {/* <button className="text-gray-600 hover:text-gray-900 bg-gray-100 py-1 px-3 rounded-md">
                                             📄 Details
-                                        </button>
+                                        </button> */}
                                     </td>
                                 </tr>
                             ))

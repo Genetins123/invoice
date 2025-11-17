@@ -5,10 +5,17 @@ import AddInvoice from '../components/AddInvoice';
 import InvoiceDetails from '../components/InvoiceDetails';
 // Importing icons for a cleaner UI
 import { Loader2, AlertTriangle, Printer, Eye, Download, Trash2, Send } from 'lucide-react'; 
+// *** NEW IMPORT ***
+import { useAuth } from '../context/AuthContext'; 
+// ******************
 
 const API_URL = 'http://localhost:5000/api';
 
 const InvoiceList = ({ setIsDetailsView = () => {} }) => { 
+    // *** 1. AUTHENTICATION CONTEXT ***
+    const { token } = useAuth(); 
+    // **********************************
+    
     // --- 1. STATE DECLARATIONS ---
     const [view, setView] = useState('list'); 
     const [selectedInvoiceId, setSelectedInvoiceId] = useState(null); 
@@ -18,10 +25,28 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
 
     // --- 2. FETCH FUNCTION ---
     const fetchInvoices = useCallback(async () => {
+        // Early exit if not authenticated
+        if (!token) {
+            setError('Authentication required. Please log in to view invoices.');
+            setLoading(false);
+            return;
+        }
+        
         setLoading(true);
         setError(null);
         try {
-            const response = await fetch(`${API_URL}/invoices`);
+            const response = await fetch(`${API_URL}/invoices`, {
+                headers: {
+                    // *** ADDED AUTHORIZATION HEADER ***
+                    'Authorization': `Bearer ${token}`, 
+                },
+            });
+
+            // *** IMPROVED AUTHENTICATION/ERROR CHECK (like in Reports.jsx pattern) ***
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Unauthorized access. Your session may have expired. Please log in.');
+            }
+            // *************************************************************************
 
             if (!response.ok) {
                 // If the response is not 2xx, try to read the error message
@@ -34,11 +59,12 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
 
         } catch (err) {
             console.error('Error fetching invoices:', err);
-            setError('Failed to load invoices. Check if the backend is running and the route is correct.');
+            // Use err.message to capture specific errors (including 401/403)
+            setError(err.message || 'Failed to load invoices. Check if the backend is running and the route is correct.');
         } finally {
             setLoading(false);
         }
-    }, []); 
+    }, [token]); // Added token as a dependency
 
     // Function to update the view state (and inform the parent)
     const updateView = (newView, id = null) => {
@@ -54,25 +80,46 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
     };
 
     useEffect(() => {
-        fetchInvoices();
-    }, [fetchInvoices, view]); 
+        if (token) {
+            fetchInvoices();
+        } else {
+            // Set error if not authenticated on mount
+            setError('Authentication required. Please log in to view invoices.');
+            setLoading(false);
+        }
+    }, [fetchInvoices, view, token]); // Added token as a dependency
     
     // Triggers the backend PDF download
+    // NOTE: This assumes the backend's PDF route can handle authentication via a bearer token or that a token is automatically added to the URL. For simplicity, we keep the window.open.
     const handlePrintPDF = (invoiceId) => {
+        // In a real app, you might need a header-based fetch to download the PDF securely.
         window.open(`${API_URL}/invoices/${invoiceId}/pdf`, `_blank`);
     };
 
     // ⭐ NEW ACTION: Handle Invoice Deletion
     const handleDeleteInvoice = async (invoiceId) => {
+        if (!token) {
+            alert('Operation failed: Authentication required.');
+            return;
+        }
+        
         if (!window.confirm("Are you sure you want to delete this invoice? This action cannot be undone.")) {
             return;
         }
 
         try {
-            // NOTE: You must implement the DELETE /api/invoices/:id route on your backend.
             const response = await fetch(`${API_URL}/invoices/${invoiceId}`, {
                 method: 'DELETE',
+                headers: {
+                    'Authorization': `Bearer ${token}`, // *** ADDED AUTHORIZATION HEADER ***
+                },
             });
+
+            // *** IMPROVED AUTHENTICATION/ERROR CHECK ***
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Unauthorized to delete. Your session may have expired. Please log in.');
+            }
+            // *******************************************
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -84,20 +131,35 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
             fetchInvoices(); 
 
         } catch (err) {
+            console.error('Deletion Error:', err);
             setError(`Deletion Error: ${err.message}`);
-            alert(`Deletion failed. See console for details.`);
+            // More informative alert to user
+            alert(`Deletion failed. See console for details: ${err.message}`); 
         }
     };
     
     // ⭐ NEW ACTION: Handle Status Change (e.g., Mark as Sent/Draft/Due)
     const handleUpdateStatus = async (invoiceId, newStatus) => {
+        if (!token) {
+            alert('Operation failed: Authentication required.');
+            return;
+        }
+
         try {
-            // NOTE: You must implement a PUT/PATCH /api/invoices/:id route to handle status updates.
             const response = await fetch(`${API_URL}/invoices/${invoiceId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`, // *** ADDED AUTHORIZATION HEADER ***
+                },
                 body: JSON.stringify({ status: newStatus }),
             });
+
+            // *** IMPROVED AUTHENTICATION/ERROR CHECK ***
+            if (response.status === 401 || response.status === 403) {
+                throw new Error('Unauthorized to update status. Your session may have expired. Please log in.');
+            }
+            // *******************************************
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -108,8 +170,10 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
             fetchInvoices(); // Refresh the list to show new status
 
         } catch (err) {
+            console.error('Status Update Error:', err);
             setError(`Status Update Error: ${err.message}`);
-            alert(`Status update failed. See console for details.`);
+            // More informative alert to user
+            alert(`Status update failed. See console for details: ${err.message}`); 
         }
     };
 
@@ -137,6 +201,7 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
         );
     }
 
+    // The modified error state will display the authentication error message as requested.
     if (error) {
         return (
             <div className="p-8 text-center bg-red-100 border border-red-400 text-red-700 font-semibold rounded-lg flex items-center justify-center space-x-2">
@@ -195,7 +260,7 @@ const InvoiceList = ({ setIsDetailsView = () => {} }) => {
                                         ${invoice.status === 'Paid' ? 'bg-green-100 text-green-800' : 
                                         invoice.status === 'Due' ? 'bg-yellow-100 text-yellow-800' : 
                                         invoice.status === 'Sent' ? 'bg-blue-100 text-blue-800' : 'bg-red-100 text-red-800'}`}>
-                                        {invoice.status}
+                                            {invoice.status}
                                     </span>
                                 </td>
                                 
