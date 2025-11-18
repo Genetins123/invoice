@@ -3,7 +3,6 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, ArrowLeft, Printer } from 'lucide-react'; 
 import { useAuth } from '../context/AuthContext'; // ⭐ NEW: Import useAuth
 
-
 const API_URL = 'http://localhost:5000/api';
 
 const InvoiceDetails = ({ invoiceId, goBack }) => {
