@@ -1,33 +1,20 @@
 const mongoose = require('mongoose');
 
-// Define the Product Schema
 const productSchema = new mongoose.Schema({
-    name: { 
-        type: String, 
-        required: [true, 'Product name is required.'], // Custom error message
-        trim: true 
-    },
-    barcode: { 
-        type: String, 
-        unique: true, 
-        required: [true, 'Barcode is required.'],
-        trim: true,
-        uppercase: true // Standardize barcode to uppercase
-    },
-    price: { 
-        type: Number, 
-        required: [true, 'Price is required.'],
-        min: [0, 'Price cannot be negative.'] 
-    },
-    vatPercent: { 
-        type: Number, 
-        default: 18.00,
-        min: [0, 'VAT percentage cannot be negative.'],
-        max: [100, 'VAT percentage cannot exceed 100.']
-    }, 
+    // Standard product fields
+    name: { type: String, required: true, trim: true },
+    barcode: { type: String, required: true, unique: true, trim: true },
+    price: { type: Number, required: true, min: 0 },
+    vatPercent: { type: Number, default: 0, min: 0, max: 100 },
+
+    // ⭐️ NEW CRITICAL FIELD: Links the product to the user who created it
+    owner: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User', // References the User model
+        required: true // Ensures every product must belong to a user
+    }
 }, { 
-    timestamps: true // Adds createdAt and updatedAt fields
+    timestamps: true 
 });
 
-// Export the Mongoose Model
 module.exports = mongoose.model('Product', productSchema);

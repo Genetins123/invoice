@@ -1,25 +1,42 @@
 // src/components/InvoiceDetails.jsx
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, ArrowLeft, Printer } from 'lucide-react'; 
+import { useAuth } from '../context/AuthContext'; // ⭐ NEW: Import useAuth
+
 
 const API_URL = 'http://localhost:5000/api';
 
 const InvoiceDetails = ({ invoiceId, goBack }) => {
+  // ⭐ NEW: Retrieve the token from context
+  const { token } = useAuth(); 
+
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // Function to fetch the full invoice details (relying on the backend /api/invoices/:id route)
   const fetchInvoiceDetails = useCallback(async () => {
+    // ⭐ AUTH CHECK: If no token, show error and stop.
+    if (!token) {
+      setError('Authentication required. Please log in to view invoice details.');
+      setLoading(false);
+      return;
+    }
+    
     setLoading(true);
     setError(null);
+    
     try {
-      // Fetches the invoice with populated client details
-      const response = await fetch(`${API_URL}/invoices/${invoiceId}`);
+      // ⭐ ADDED: Include the Authorization header with the token
+      const response = await fetch(`${API_URL}/invoices/${invoiceId}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`, 
+        },
+      });
 
       if (!response.ok) {
-        throw new Error(`Invoice not found or server error (Status: ${response.status})`);
+        const errorData = await response.json().catch(() => ({ message: `HTTP Status ${response.status}` }));
+        throw new Error(`Invoice failed to load: ${errorData.message || 'Server responded with an error.'}`);
       }
 
       const data = await response.json();
@@ -31,7 +48,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
     } finally {
       setLoading(false);
     }
-  }, [invoiceId]);
+  }, [invoiceId, token]); // ⭐ IMPORTANT: token is now a dependency
 
   useEffect(() => {
     fetchInvoiceDetails();
@@ -44,6 +61,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
 
   // --- Loading and Error States ---
   if (loading) {
+// ... (rest of the loading block is unchanged)
     return (
       <div className="p-8 text-center text-indigo-600 flex flex-col items-center justify-center min-h-[500px]">
         <Loader2 className="animate-spin mb-3" size={32} />
@@ -53,6 +71,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
   }
 
   if (error) {
+// ... (rest of the error block is unchanged)
     return (
       <div className="p-8 text-center bg-red-100 border border-red-400 text-red-700 font-semibold rounded-lg flex flex-col items-center">
         <p className="font-bold mb-2">Error:</p> {error}
@@ -64,6 +83,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
     return <div className="p-8 text-center text-gray-600">No invoice data found.</div>;
   }
 
+// ... (rest of the component JSX is unchanged)
   const client = invoice.client || {}; 
 
   // --- Render Invoice Details ---
@@ -90,8 +110,8 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
           </button>
         </div>
       </div>
-      
-      {/* Main Content: Apply 'print-container' for print optimization */}
+      
+      {/* Main Content: Apply 'print-container' for print optimization */}
       <div className="print-container"> 
         
         {/* Invoice Header (Similar to Image Layout) */}
@@ -165,7 +185,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
               <span>Total Without VAT</span>
               <span className="font-medium">{parseFloat(invoice.totalWithoutVAT).toFixed(2)} €</span>
             </div>
-              <div className="flex justify-between text-base text-gray-700">
+              <div className="flex justify-between text-base text-gray-700">
                 <span>Total VAT (18%)</span>
                 <span className="font-medium">{parseFloat(invoice.totalVAT).toFixed(2)} €</span>
               </div>
@@ -181,7 +201,7 @@ const InvoiceDetails = ({ invoiceId, goBack }) => {
           <h5 className="font-bold mb-1">Note:</h5>
           <p className="p-3 bg-white border border-gray-200 rounded-lg shadow-sm min-h-[50px]">{invoice.notes || 'No specific notes for this invoice.'}</p>
         </div>
-      </div>
+      </div>
     </div>
   );
 };

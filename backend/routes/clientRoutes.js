@@ -1,30 +1,42 @@
 const express = require('express');
 const Client = require('../models/Client'); 
+// Assuming the path to your auth middleware is correct:
+const { protect } = require('../middleware/auth'); 
 
 const router = express.Router();
 
 // ------------------------------------------------------------------
-// --- CREATE (POST)
+// --- CREATE (POST) - PROTECTED
 // ------------------------------------------------------------------
 // POST /api/clients: Add New Client
-router.post('/', async (req, res) => {
+router.post('/', protect, async (req, res) => { // ⭐️ Added 'protect'
     try {
-        const newClient = new Client(req.body);
+        // ⭐️ ISOLATION: Inject the logged-in user's ID as the owner
+        const ownerId = req.user.id;
+        const clientData = { ...req.body, owner: ownerId };
+
+        const newClient = new Client(clientData);
         const savedClient = await newClient.save();
         res.status(201).json(savedClient); 
     } catch (error) {
+        // Handle MongoDB duplicate key errors (for email/businessNumber)
+        if (error.code === 11000) {
+            return res.status(400).json({ message: 'A client with this email or business number already exists.', error: error.message });
+        }
         res.status(400).json({ message: 'Error adding client', error: error.message });
     }
 });
 
 // ------------------------------------------------------------------
-// --- READ (GET)
+// --- READ (GET) - PROTECTED AND ISOLATED
 // ------------------------------------------------------------------
 
-// GET /api/clients: Get All Clients (sorted by most recent update)
-router.get('/', async (req, res) => {
+// GET /api/clients: Get All Clients for the logged-in user
+router.get('/', protect, async (req, res) => { // ⭐️ Added 'protect'
     try {
-        const clients = await Client.find({}).sort({ updatedAt: -1 });
+        // ⭐️ ISOLATION: Filter by the authenticated user's ID
+        const ownerId = req.user.id;
+        const clients = await Client.find({ owner: ownerId }).sort({ updatedAt: -1 }); // Only finds clients belonging to ownerId
         res.status(200).json(clients);
     } catch (error) {
         res.status(500).json({ message: 'Error fetching clients', error: error.message });
@@ -32,65 +44,77 @@ router.get('/', async (req, res) => {
 });
 
 // GET /api/clients/:id: Get Single Client by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', protect, async (req, res) => { // ⭐️ Added 'protect'
     try {
-        const client = await Client.findById(req.params.id);
+        const ownerId = req.user.id;
+        
+        // ⭐️ ISOLATION: Find by ID AND ensure the owner matches the logged-in user
+        const client = await Client.findOne({ 
+            _id: req.params.id,
+            owner: ownerId 
+        });
         
         if (!client) {
-            // Return 404 if the client ID is valid but not found
-            return res.status(404).json({ message: 'Client not found' });
+            // Returns 404 if client doesn't exist or if it belongs to another user
+            return res.status(404).json({ message: 'Client not found or access denied' });
         }
         
         res.status(200).json(client);
     } catch (error) {
-        // Return 400 for bad ID format (e.g., not a valid MongoDB ObjectId)
         res.status(400).json({ message: 'Error fetching client', error: error.message });
     }
 });
 
 // ------------------------------------------------------------------
-// --- UPDATE (PUT)
+// --- UPDATE (PUT) - PROTECTED AND ISOLATED
 // ------------------------------------------------------------------
 // PUT /api/clients/:id: Update an Existing Client
-router.put('/:id', async (req, res) => {
+router.put('/:id', protect, async (req, res) => { // ⭐️ Added 'protect'
     try {
-        // FindByIdAndUpdate options:
-        // { new: true } returns the updated document.
-        // { runValidators: true } ensures schema validation runs on the update.
-        const updatedClient = await Client.findByIdAndUpdate(
-            req.params.id, 
+        const ownerId = req.user.id;
+        
+        // ⭐️ ISOLATION: Find and update by ID AND owner ID
+        const updatedClient = await Client.findOneAndUpdate(
+            { _id: req.params.id, owner: ownerId }, // Filter by both ID and Owner
             req.body, 
             { new: true, runValidators: true } 
         );
 
         if (!updatedClient) {
-            return res.status(404).json({ message: 'Client not found' });
+            // Returns 404 if client doesn't exist or belongs to another user
+            return res.status(404).json({ message: 'Client not found or access denied for update' });
         }
 
         res.status(200).json(updatedClient);
     } catch (error) {
-        // Handle validation errors (e.g., trying to set a non-unique email) or bad ID format
+        if (error.code === 11000) {
+            return res.status(400).json({ message: 'A client with this email or business number already exists.', error: error.message });
+        }
         res.status(400).json({ message: 'Error updating client', error: error.message });
     }
 });
 
 // ------------------------------------------------------------------
-// --- DELETE (DELETE)
+// --- DELETE (DELETE) - PROTECTED AND ISOLATED
 // ------------------------------------------------------------------
 // DELETE /api/clients/:id: Delete a Client
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', protect, async (req, res) => { // ⭐️ Added 'protect'
     try {
-        const deletedClient = await Client.findByIdAndDelete(req.params.id);
+        const ownerId = req.user.id;
+        
+        // ⭐️ ISOLATION: Find and delete by ID AND owner ID
+        const deletedClient = await Client.findOneAndDelete({ 
+            _id: req.params.id,
+            owner: ownerId // Ensures user can only delete their own clients
+        });
 
         if (!deletedClient) {
-            return res.status(404).json({ message: 'Client not found' });
+            return res.status(404).json({ message: 'Client not found or access denied for deletion' });
         }
 
-        // Return a 200 status with a confirmation message and the deleted document
         res.status(200).json({ message: 'Client successfully deleted', client: deletedClient });
         
     } catch (error) {
-        // Handle bad ID format
         res.status(400).json({ message: 'Error deleting client', error: error.message });
     }
 });

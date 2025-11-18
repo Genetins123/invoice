@@ -1,10 +1,12 @@
 const Transaction = require('../models/Transaction');
-const Account = require('../models/Account'); // Imports the compiled Account Model
+const Account = require('../models/Account'); 
 
-// --- CREATE Transaction (POST /api/transactions) ---
+// --- CREATE Transaction (POST /api/transactions) (Protected) ---
 exports.createTransaction = async (req, res) => {
+    // ⭐️ ISOLATION: Get the user ID from the authentication middleware
+    const ownerId = req.user.id; 
+    
     try {
-        // ⭐ UPDATED: Include clientId in destructuring
         const { type, amount, accountId, source, paymentMethod, date, reference, clientId } = req.body;
 
         // 1. Create the Transaction
@@ -12,28 +14,17 @@ exports.createTransaction = async (req, res) => {
             type,
             amount,
             accountId,
-            // ⭐ UPDATED: Include the clientId in the creation
             clientId, 
+            owner: ownerId, // ⭐️ ISOLATION: Assign the owner
             source,
             paymentMethod,
             date,
             reference
         });
 
-        // 2. Update the associated Account balance
-        const account = await Account.findById(accountId);
-
-        if (!account) {
-            return res.status(404).json({ success: false, error: 'Account not found' });
-        }
-
-        if (type === 'Income') {
-            account.balance += amount;
-        } else if (type === 'Expense') {
-            account.balance -= amount;
-        }
-
-        await account.save(); // Save the updated balance
+        // 2. Update the associated Account balance atomically
+        // The Account.updateAccountBalance method now ensures the account belongs to the ownerId
+        await Account.updateAccountBalance(accountId, ownerId, amount, type);
 
         // 3. Respond with success
         res.status(201).json({ 
@@ -42,9 +33,8 @@ exports.createTransaction = async (req, res) => {
         });
 
     } catch (err) {
-        // Log the actual validation/server error for debugging
         console.error('Transaction creation error:', err.message); 
-        // Send a generic error response back to the frontend
+        // Handle potential errors from updateAccountBalance or Transaction validation
         res.status(400).json({ 
             success: false, 
             error: err.message || 'Transaction could not be recorded.' 
@@ -52,18 +42,22 @@ exports.createTransaction = async (req, res) => {
     }
 };
 
-// --- GET All Transactions (GET /api/transactions) ---
-// @desc    Get all transactions, populated with account and client details
-// @route   GET /api/transactions
-// @access  Public
+// --- GET All Transactions (GET /api/transactions) (Protected) ---
+// @desc    Get all transactions, populated with account and client details, for the logged-in user
+// @route   GET /api/transactions
+// @access  Protected
 exports.getTransactions = async (req, res) => {
+    // ⭐️ ISOLATION: Filter by the authenticated user's ID
+    const ownerId = req.user.id;
+    
     try {
-        const transactions = await Transaction.find()
-            // Populate the account field
+        // ⭐️ ISOLATION: Find transactions where 'owner' matches 'ownerId'
+        const transactions = await Transaction.find({ owner: ownerId })
+            // Populate the account field (Account will also be filtered by owner via security rules if applicable, 
+            // but the query here ensures the transaction itself is theirs)
             .populate('accountId', 'name accountNo') 
-            // ⭐ NEW: Populate the client field to get client details
             .populate('clientId', 'name email phone address') 
-            .sort({ date: -1 }); // Show newest first
+            .sort({ date: -1 }); 
 
         return res.status(200).json({
             success: true,
@@ -79,57 +73,46 @@ exports.getTransactions = async (req, res) => {
     }
 };
 
-// --- DELETE Transaction (DELETE /api/transactions/:id) ---
-// @desc    Delete a transaction and reverse its effect on the account balance
-// @route   DELETE /api/transactions/:id
-// @access  Private (Requires authentication in a real app)
+// --- DELETE Transaction (DELETE /api/transactions/:id) (Protected) ---
+// @desc    Delete a transaction and reverse its effect on the account balance
+// @route   DELETE /api/transactions/:id
+// @access  Protected
 exports.deleteTransaction = async (req, res) => {
+    // ⭐️ ISOLATION: Get the user ID
+    const ownerId = req.user.id;
+    const transactionId = req.params.id;
+    
     try {
-        const transactionId = req.params.id;
-        
-        // 1. Find the transaction to get its details before deletion
-        const transaction = await Transaction.findById(transactionId);
+        // 1. Find the transaction by ID AND owner ID
+        const transaction = await Transaction.findOne({ _id: transactionId, owner: ownerId });
 
         if (!transaction) {
-            return res.status(404).json({ success: false, error: 'Transaction not found' });
+            return res.status(404).json({ success: false, error: 'Transaction not found or access denied' });
         }
         
         const { type, amount, accountId } = transaction;
 
-        // 2. Reverse the account balance change
-        const account = await Account.findById(accountId);
+        // 2. Determine the reversal type (Income becomes Expense, Expense becomes Income)
+        const reversalType = type === 'Income' ? 'Expense' : 'Income';
 
-        if (!account) {
-             // Log but proceed to delete the transaction if the account is somehow missing
-             console.warn(`Account ID ${accountId} not found for transaction ${transactionId}. Deleting transaction without balance reversal.`);
-        } else {
-            // Reversal logic:
-            // If it was Income, subtract the amount.
-            // If it was Expense, add the amount back.
-            if (type === 'Income') {
-                account.balance -= amount; 
-            } else if (type === 'Expense') {
-                account.balance += amount; 
-            }
-            
-            await account.save(); // Save the updated balance
-        }
+        // 3. Reverse the account balance using the atomic, isolated method
+        // We use the reversalType to negate the original effect.
+        await Account.updateAccountBalance(accountId, ownerId, amount, reversalType);
+        
+        // 4. Delete the transaction
+        await transaction.deleteOne();
 
-        // 3. Delete the transaction
-        await transaction.deleteOne(); // Use deleteOne on the document instance
-
-        // 4. Respond with success
+        // 5. Respond with success
         res.status(200).json({ 
             success: true, 
-            data: {} // Empty data or ID of the deleted item
+            data: {} 
         });
 
     } catch (err) {
         console.error('Transaction deletion error:', err.message);
-        // Mongoose cast errors (e.g., invalid ID format) are handled here
         res.status(500).json({ 
             success: false, 
-            error: 'Server Error: Transaction could not be deleted.' 
+            error: 'Server Error: Transaction could not be deleted or balance reversal failed.' 
         });
     }
-};
+}; 

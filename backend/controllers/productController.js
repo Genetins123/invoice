@@ -2,7 +2,6 @@ const Product = require('../models/Product'); // Path relative to the controller
 
 /**
  * Helper function to calculate price without VAT for the API response.
- * This is not stored in the DB, but useful for the frontend.
  */
 const calculateResponseData = (product) => {
     // Ensure we are working with a plain JavaScript object
@@ -10,30 +9,33 @@ const calculateResponseData = (product) => {
     const { price, vatPercent } = productObj;
 
     if (vatPercent > 0) {
-        productObj.priceWithoutVat = price / (1 + vatPercent / 100);
+        // Calculate price without VAT
+        productObj.priceWithoutVat = parseFloat((price / (1 + vatPercent / 100)).toFixed(2));
     } else {
         productObj.priceWithoutVat = price;
     }
     return productObj;
 };
 
-// --- 1. CREATE Product ---
+// --- 1. CREATE Product (Isolation Added) ---
 exports.createProduct = async (req, res) => {
     try {
-        // Explicitly extract and map fields: frontend sends 'vat', schema expects 'vatPercent'
+        // ⭐️ CRITICAL: Get the user ID from the authentication middleware
+        const ownerId = req.user.id; 
+        
         const { name, barcode, price, vat } = req.body;
         
         const productData = {
             name,
             barcode,
             price,
-            vatPercent: vat, // Mapping the field name
+            vatPercent: vat, 
+            owner: ownerId, // ⭐️ NEW: Assign the logged-in user as the product owner
         };
 
         const newProduct = new Product(productData);
         const savedProduct = await newProduct.save();
 
-        // Send back the product with the calculated priceWithoutVat
         const responseData = calculateResponseData(savedProduct);
         
         res.status(201).json(responseData);
@@ -44,10 +46,9 @@ exports.createProduct = async (req, res) => {
         let status = 400;
         let message = 'Error adding product.';
 
-        if (error.code === 11000) { // MongoDB duplicate key error (for barcode)
+        if (error.code === 11000) { 
             message = 'Barcode already exists. Barcode must be unique.';
         } else if (error.name === 'ValidationError') {
-            // Mongoose validation errors
             message = error.message; 
         }
 
@@ -55,10 +56,14 @@ exports.createProduct = async (req, res) => {
     }
 };
 
-// --- 2. READ ALL Products ---
+// --- 2. READ ALL Products (Isolation Added) ---
 exports.getProducts = async (req, res) => {
     try {
-        const products = await Product.find({}).sort({ name: 1 }); // Sort alphabetically
+        // ⭐️ CRITICAL: Filter products to show only those owned by the logged-in user
+        const ownerId = req.user.id; 
+        
+        // Find products where the 'owner' field matches the authenticated user's ID
+        const products = await Product.find({ owner: ownerId }).sort({ name: 1 }); 
         
         // Calculate priceWithoutVat for every product before sending
         const productsWithCalculatedData = products.map(calculateResponseData);
@@ -70,13 +75,20 @@ exports.getProducts = async (req, res) => {
     }
 };
 
-// --- 3. READ ONE Product by ID ---
+// --- 3. READ ONE Product by ID (Isolation Added) ---
 exports.getProductById = async (req, res) => {
     try {
-        const product = await Product.findById(req.params.id);
+        // ⭐️ CRITICAL: Find the product by ID AND ensure the owner matches the logged-in user
+        const ownerId = req.user.id; 
+
+        const product = await Product.findOne({ 
+            _id: req.params.id, 
+            owner: ownerId // Ensures User A cannot fetch User B's product
+        });
 
         if (!product) {
-            return res.status(404).json({ message: 'Product not found' });
+            // Return 404 if product doesn't exist OR if it exists but belongs to a different user
+            return res.status(404).json({ message: 'Product not found or access denied' });
         }
         
         const responseData = calculateResponseData(product);
@@ -84,29 +96,36 @@ exports.getProductById = async (req, res) => {
         res.status(200).json(responseData);
     } catch (error) {
         console.error("Server Error on Product READ ONE:", error.message);
+        // Handle MongoDB ObjectId cast errors (e.g., if ID format is wrong)
+        if (error.kind === 'ObjectId') {
+            return res.status(400).json({ message: 'Invalid product ID format.' });
+        }
         res.status(500).json({ message: 'Error fetching product', error: error.message });
     }
 };
 
-// --- 4. UPDATE Product by ID ---
+// --- 4. UPDATE Product by ID (Isolation Added) ---
 exports.updateProduct = async (req, res) => {
     try {
+        const ownerId = req.user.id; 
+        const productId = req.params.id;
+
         const updateData = {};
         // Only include fields that are present in the request body
         if (req.body.name !== undefined) updateData.name = req.body.name;
         if (req.body.barcode !== undefined) updateData.barcode = req.body.barcode;
         if (req.body.price !== undefined) updateData.price = req.body.price;
-        // Map frontend 'vat' to schema's 'vatPercent' if present
-        if (req.body.vat !== undefined) updateData.vatPercent = req.body.vat;
+        if (req.body.vat !== undefined) updateData.vatPercent = req.body.vat; // Map 'vat' to 'vatPercent'
         
-        const updatedProduct = await Product.findByIdAndUpdate(
-            req.params.id,
+        // ⭐️ CRITICAL: Find and update the product by ID AND owner ID
+        const updatedProduct = await Product.findOneAndUpdate(
+            { _id: productId, owner: ownerId }, // Filter by both ID and Owner
             { $set: updateData },
-            { new: true, runValidators: true } // Return new doc and run schema validators
+            { new: true, runValidators: true } 
         );
 
         if (!updatedProduct) {
-            return res.status(404).json({ message: 'Product not found for update' });
+             return res.status(404).json({ message: 'Product not found or access denied for update' });
         }
 
         const responseData = calculateResponseData(updatedProduct);
@@ -129,16 +148,23 @@ exports.updateProduct = async (req, res) => {
     }
 };
 
-// --- 5. DELETE Product by ID ---
+// --- 5. DELETE Product by ID (Isolation Added) ---
 exports.deleteProduct = async (req, res) => {
     try {
-        const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+        const ownerId = req.user.id; 
+        const productId = req.params.id;
+
+        // ⭐️ CRITICAL: Delete the product by ID AND owner ID
+        const deletedProduct = await Product.findOneAndDelete({
+            _id: productId,
+            owner: ownerId // Ensures user can only delete their own products
+        });
 
         if (!deletedProduct) {
-            return res.status(404).json({ message: 'Product not found for deletion' });
+            return res.status(404).json({ message: 'Product not found or access denied for deletion' });
         }
 
-        res.status(200).json({ message: 'Product deleted successfully', id: req.params.id });
+        res.status(200).json({ message: 'Product deleted successfully', id: productId });
 
     } catch (error) {
         console.error("Server Error on Product DELETE:", error.message);

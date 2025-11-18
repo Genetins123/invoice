@@ -1,60 +1,75 @@
 // src/components/PaymentModal.jsx
 import React, { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext'; // NEW IMPORT
+import { useAuth } from '../context/AuthContext'; 
+import { Loader2 } from 'lucide-react'; // Import for the spinning icon
 
 const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
     
+    const API_URL = 'http://localhost:5000/api'; // Define API URL for clarity
+    
     // --- AUTH CONTEXT ---
-    const { user, token } = useAuth(); // Retrieve user and token
+    const { user, token } = useAuth();
     // --------------------
 
-    // Determine the amount to be paid (assuming a 'total' field in your invoice data)
+    // Determine the amount to be paid
     const initialAmount = invoice?.total || 0; 
 
+    // --- STATE MANAGEMENT ---
     const [paymentAmount, setPaymentAmount] = useState(initialAmount.toFixed(2));
-    const [paymentDate, setPaymentDate] = useState(new Date().toISOString().substring(0, 10)); // Today's date
+    const [paymentDate, setPaymentDate] = useState(new Date().toISOString().substring(0, 10));
     const [paymentMethod, setPaymentMethod] = useState('Cash');
-    const [selectedAccount, setSelectedAccount] = useState(''); // Stores the selected account ID or combined string
+    const [selectedAccount, setSelectedAccount] = useState('');
     const [note, setNote] = useState(`Payment for invoice #${invoice?.invoiceNumber}`);
     const [isProcessing, setIsProcessing] = useState(false);
-    const [authError, setAuthError] = useState(''); // NEW STATE FOR AUTH ERROR
+    
+    // ⭐ NEW STATE for unified error reporting
+    const [apiError, setApiError] = useState(''); 
+    const [validationError, setValidationError] = useState(''); 
+    // The previous 'authError' state is now covered by the general 'apiError' 
+    // for server-side errors, and the initial '!token' check for client-side warning.
+    // ------------------------
 
-    // Filter accounts to show in the dropdown (assuming 'accounts' prop is the list of Account objects)
+    // Filter accounts to show in the dropdown
     const accountOptions = accounts.map(acc => ({
         id: acc._id,
         label: `${acc.name} / ${acc.accountNo}`,
-        balance: acc.balance // Store balance to help user know context
-    }));    
-
+        balance: acc.balance 
+    })); 
+    
     // Set initial selected account to the first one available
     useEffect(() => {
         if (accountOptions.length > 0 && !selectedAccount) {
             setSelectedAccount(accountOptions[0].id); 
         }
-    }, [accountOptions, selectedAccount]);
+        // Reset amount/note if invoice changes (e.g., if modal is reused)
+        setPaymentAmount(initialAmount.toFixed(2));
+        setNote(`Payment for invoice #${invoice?.invoiceNumber}`);
+    }, [accountOptions, selectedAccount, initialAmount, invoice]);
 
 
     const handleMakePayment = async () => {
-        // --- AUTH CHECK ---
+        // --- 1. CLEAR PREVIOUS ERRORS ---
+        setApiError(''); 
+        setValidationError('');
+
+        // --- 2. AUTH CHECK ---
         if (!user || !token) {
-            setAuthError("You must be logged in to record a payment. Your session may have expired.");
-            console.error("Authentication Error: User not logged in.");
+            setApiError("Authentication required. Your session may have expired.");
             return;
         }
-        setAuthError(''); // Clear any previous auth error
-        // ------------------
 
-        if (parseFloat(paymentAmount) <= 0) {
-            console.error("Validation Error: Payment amount must be greater than zero.");
+        // --- 3. INPUT VALIDATION ---
+        const amount = parseFloat(paymentAmount);
+        if (amount <= 0 || isNaN(amount)) {
+            setValidationError("Payment amount must be a positive number.");
             return;
         }
         if (!selectedAccount) {
-            console.error("Validation Error: Please select a target account.");
+            setValidationError("Please select a target account for the deposit.");
             return;
         }
-
         if (!invoice?.client?._id) { 
-            console.error("Critical Error: Invoice is missing the associated Client ID.");
+            setValidationError("Critical Error: Invoice is missing client information. Cannot proceed.");
             return;
         }
 
@@ -63,48 +78,46 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
         const paymentData = {
             invoiceId: invoice._id,
             accountId: selectedAccount,
-            amount: parseFloat(paymentAmount),
+            amount: amount,
             method: paymentMethod,
             date: paymentDate,
             note: note,
         };
 
         try {
-            // --- API Call 1: Update Invoice Status (Set to 'Paid' or 'Completed') ---
-            const updateInvoiceResponse = await fetch(`http://localhost:5000/api/invoices/${invoice._id}`, {
+            // --- Helper data for transaction record ---
+            const clientName = invoice.client?.name || invoice.clientName || 'Unknown Client';
+            // ⭐ Improved transaction reference
+            const transactionSource = `Payment for Invoice #${invoice.invoiceNumber} from ${clientName}`; 
+            const authHeader = { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            };
+
+            // --- API Call 1: Update Invoice Status (Set to 'Paid') ---
+            const updateInvoiceResponse = await fetch(`${API_URL}/invoices/${invoice._id}`, {
                 method: 'PUT',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` // ADDED TOKEN
-                }, 
-                body: JSON.stringify({ 
-                    status: 'Paid', 
-                }), 
+                headers: authHeader, 
+                body: JSON.stringify({ status: 'Paid' }), 
             });
 
             if (!updateInvoiceResponse.ok) {
-                // If the update fails (e.g., 401/403), throw an error
                 const errorData = await updateInvoiceResponse.json();
                 throw new Error(errorData.message || "Failed to update invoice status.");
             }
 
             // --- API Call 2: Record Transaction (Post to Account/Transaction API) ---
-            const clientName = invoice.client?.name || invoice.clientName || 'Unknown Client';
-            
-            const recordTransactionResponse = await fetch(`http://localhost:5000/api/transactions`, { 
+            const recordTransactionResponse = await fetch(`${API_URL}/transactions`, { 
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}` // ADDED TOKEN
-                },
+                headers: authHeader,
                 body: JSON.stringify({
                     type: 'Income',
-                    source: `Invoice #${invoice.invoiceNumber}`,
+                    source: transactionSource, // Use the clear reference
                     amount: paymentData.amount,
                     accountId: paymentData.accountId,
                     date: paymentData.date,
                     paymentMethod: paymentData.method,
-                    reference: paymentData.note,
+                    reference: paymentData.note || transactionSource, 
                     clientId: invoice.client._id, 
                     clientName: clientName, 
                 }),
@@ -112,19 +125,18 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
             
             if (!recordTransactionResponse.ok) {
                 const errorData = await recordTransactionResponse.json();
-                console.error(`Transaction record failed: ${errorData.message}`);
-                // In a real app, this would require complex rollback logic.
+                // If transaction fails but invoice status succeeded, alert the user but continue success flow
+                // In a production app, robust rollback or warning is needed here.
+                console.warn(`Transaction record failed: ${errorData.message}. Invoice status was updated to Paid, but ledger may be incorrect.`);
             }
 
-            console.log(`Payment of $${paymentAmount} successfully recorded!`);
+            // Success
             onPaymentSuccess(); 
 
         } catch (error) {
             console.error(`Payment failed: ${error.message}`);
-            // Check for potential authentication error messages from the server
-            if (error.message.includes('token') || error.message.includes('401')) {
-                 setAuthError("Session expired or unauthorized. Please log in again.");
-            }
+            // ⭐ Use the unified state for server errors
+            setApiError(error.message); 
         } finally {
             setIsProcessing(false);
         }
@@ -145,21 +157,31 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl p-1 leading-none transition-colors">&times;</button>
                 </div>
                 
-                {/* --- Authentication Warning/Error Messages --- */}
-                {authError && (
-                    <div className="mt-4 p-3 bg-red-50 border-l-4 border-red-400 text-red-800 rounded-md">
-                        <p className="font-semibold">Error</p>
-                        <p className="text-sm">{authError}</p>
+                {/* --- 1. Validation Error Message --- */}
+                {validationError && (
+                    <div className="mt-4 p-3 bg-red-100 border-l-4 border-red-500 text-red-900 rounded-md">
+                        <p className="font-semibold">Validation Failed</p>
+                        <p className="text-sm">{validationError}</p>
                     </div>
                 )}
-                {!token && !authError && (
+
+                {/* --- 2. API/Server Error Message --- */}
+                {apiError && (
+                    <div className="mt-4 p-3 bg-red-100 border-l-4 border-red-500 text-red-900 rounded-md">
+                        <p className="font-semibold">Transaction Error</p>
+                        <p className="text-sm">{apiError}</p>
+                    </div>
+                )}
+                
+                {/* --- 3. Authentication Warning --- */}
+                {!token && (
                     <div className="mt-4 p-3 bg-yellow-50 border-l-4 border-yellow-400 text-yellow-800 rounded-md">
                         <p className="font-semibold">Authentication Required</p>
                         <p className="text-sm">You must be logged in to record financial transactions.</p>
                     </div>
                 )}
 
-
+                {/* --- Invoice Summary Block --- */}
                 <div className="mt-4 p-3 bg-purple-50 border-l-4 border-purple-400 text-purple-800 rounded-md">
                     <p className="font-semibold">Invoice: <span className="font-mono">#{invoice.invoiceNumber}</span></p>
                     <p>Client: <span className="font-medium">{invoice.client?.name || invoice.clientName || 'N/A'}</span></p>
@@ -168,7 +190,7 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
 
 
                 <div className="space-y-4 mt-4">
-                    {/* Amount and Date (side-by-side as per image) */}
+                    {/* Amount and Date */}
                     <div className="flex space-x-4">
                         <div className="w-1/2">
                             <label className="text-sm font-medium text-gray-700 mb-1 block">Payment Amount</label>
@@ -180,7 +202,7 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                                 placeholder="$ 0.00"
                                 step="0.01"
                                 required
-                                disabled={!token} // Disabled if unauthenticated
+                                disabled={!token}
                             />
                         </div>
                         <div className="w-1/2">
@@ -191,7 +213,7 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                                 onChange={(e) => setPaymentDate(e.target.value)}
                                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-purple-500 focus:border-purple-500 transition duration-150 shadow-sm"
                                 required
-                                disabled={!token} // Disabled if unauthenticated
+                                disabled={!token}
                             />
                         </div>
                     </div>
@@ -203,7 +225,7 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                             value={paymentMethod}
                             onChange={(e) => setPaymentMethod(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg mt-1 focus:ring-purple-500 focus:border-purple-500 shadow-sm"
-                            disabled={!token} // Disabled if unauthenticated
+                            disabled={!token}
                         >
                             <option value="Cash">Cash</option>
                             <option value="Bank Transfer">Bank Transfer</option>
@@ -219,11 +241,11 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                             value={selectedAccount}
                             onChange={(e) => setSelectedAccount(e.target.value)}
                             className="w-full p-3 border border-gray-300 rounded-lg mt-1 focus:ring-purple-500 focus:border-purple-500 shadow-sm"
-                            disabled={!token} // Disabled if unauthenticated
+                            disabled={!token}
                         >
                             {accountOptions.map(acc => (
                                 <option key={acc.id} value={acc.id}>
-                                    {acc.label} 
+                                    {acc.label}
                                 </option>
                             ))}
                         </select>
@@ -238,7 +260,7 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                             rows="2"
                             className="w-full p-3 border border-gray-300 rounded-lg mt-1 focus:ring-purple-500 focus:border-purple-500 shadow-sm"
                             placeholder="Payment note"
-                            disabled={!token} // Disabled if unauthenticated
+                            disabled={!token}
                         ></textarea>
                     </div>
                 </div>
@@ -254,14 +276,11 @@ const PaymentModal = ({ invoice, accounts, onClose, onPaymentSuccess }) => {
                     </button>
                     <button
                         onClick={handleMakePayment}
-                        disabled={isPaymentDisabled} // Use the combined disable check
-                        className="py-2 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition duration-150 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={isPaymentDisabled} 
+                        className="py-2 px-6 bg-purple-600 hover:bg-purple-700 text-white font-bold rounded-lg transition duration-150 shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                     >
                         {isProcessing ? (
-                            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white inline" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                            </svg>
+                            <Loader2 className="animate-spin mr-2 h-5 w-5" />
                         ) : 'Confirm & Record Payment'}
                     </button>
                 </div>

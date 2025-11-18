@@ -20,8 +20,16 @@ exports.registerUser = async (req, res) => {
         const hashedPassword = await bcrypt.hash(password, 10);
         const newUser = new User({ username, email, password: hashedPassword, phone });
         await newUser.save();
+        
+        // After registration, generate token for immediate login
+        const token = jwt.sign({ id: newUser._id }, process.env.SECRET, { expiresIn: '1h' });
 
-        res.status(201).json({ message: 'User registered successfully', user: newUser });
+
+        res.status(201).json({ 
+            message: 'User registered successfully and logged in', 
+            token, 
+            user: { _id: newUser._id, username: newUser.username, email: newUser.email, phone: newUser.phone } 
+        });
     } catch (error) {
         res.status(500).json({ message: 'Server error', error: error.message });
     }
@@ -41,100 +49,45 @@ exports.loginUser = async (req, res) => {
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-        // Use SECRET from .env
+        // Generate token upon successful login
         const token = jwt.sign({ id: user._id }, process.env.SECRET, { expiresIn: '1h' });
 
-        res.status(200).json({ message: 'Login successful', token, user: { _id: user._id, username: user.username, email: user.email, phone: user.phone } });
+        res.status(200).json({ 
+            message: 'Login successful', 
+            token, 
+            user: { _id: user._id, username: user.username, email: user.email, phone: user.phone } 
+        });
     } catch (error) {
         console.error(error);
         res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
 
-// 3️⃣ Get All Users
-exports.getAllUsers = async (req, res) => {
-    try {
-        const users = await User.find().select('-password');
-        res.status(200).json(users);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
+// ⭐️ 3️⃣ FIX: Get Authenticated User Profile (The solution to your problem)
+// This fetches data based on the token provided, ensuring unique data for each user.
+exports.getProfile = async (req, res) => {
+    // The user object is attached by the 'protect' middleware
+    const user = req.user; 
 
-// 4️⃣ Get Single User
-exports.getUserById = async (req, res) => {
-    try {
-        const user = await User.findById(req.params.id).select('-password');
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        res.status(200).json(user);
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
-
-// userController.js (5️⃣ Update User)
-
-exports.updateUser = async (req, res) => {
-    // ⭐️ SAFETY CHECK: Returns 400 if the body is empty (Fixes the 500 TypeError)
-    if (!req.body || Object.keys(req.body).length === 0) {
-        return res.status(400).json({ message: 'Request body is empty. Nothing to update.' });
-    }
-
-    // Safe to destructure now
-    const { username, email, phone, password } = req.body;
-    
-    try {
-        // Find user by ID from the URL (req.params.id)
-        const user = await User.findById(req.params.id);
-        
-        // Handles the original 404 error
-        if (!user) {
-            return res.status(404).json({ message: 'User not found' });
-        } 
-
-        // Apply updates
-        if (username) user.username = username;
-        if (email) user.email = email;
-        if (phone) user.phone = phone;
-        if (password) user.password = await bcrypt.hash(password, 10);
-
-        await user.save();
-        
-        // Send back sanitized data
-        res.status(200).json({ 
-            message: 'User updated successfully', 
-            user: { 
-                _id: user._id, 
-                username: user.username, 
-                email: user.email, 
-                phone: user.phone 
-            } 
+    if (user) {
+        res.status(200).json({
+            _id: user._id,
+            username: user.username,
+            email: user.email,
+            phone: user.phone,
+            createdAt: user.createdAt,
         });
-    } catch (error) {
-        if (error.kind === 'ObjectId') {
-             return res.status(400).json({ message: 'Invalid User ID format.' });
-        }
-        res.status(500).json({ message: 'Server error', error: error.message });
+    } else {
+        // Fallback for cases where middleware fails to attach user
+        res.status(404).json({ message: 'User profile not found' });
     }
 };
 
 
-
-// 6️⃣ Delete User
-exports.deleteUser = async (req, res) => {
-    try {
-        const user = await User.findByIdAndDelete(req.params.id);
-        if (!user) return res.status(404).json({ message: 'User not found' });
-        res.status(200).json({ message: 'User deleted successfully' });
-    } catch (error) {
-        res.status(500).json({ message: 'Server error', error: error.message });
-    }
-};
-
-
-// ⭐️ 7️⃣ New Protected Profile Update Function
+// ⭐️ 4️⃣ Protected Profile Update Function (User updates their OWN profile)
+// Uses the ID attached via the JWT token (req.user.id)
 exports.updateUserProfile = async (req, res) => {
-    // The user ID comes from the middleware (req.user.id or req.user._id)
+    // Get the ID from the middleware, NOT from the request body or params
     const userId = req.user.id; 
     
     const { username, email, phone, password } = req.body;
@@ -150,7 +103,7 @@ exports.updateUserProfile = async (req, res) => {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        // Update fields
+        // Apply updates
         if (username) user.username = username;
         if (email) user.email = email;
         if (phone) user.phone = phone;
@@ -158,7 +111,6 @@ exports.updateUserProfile = async (req, res) => {
 
         const updatedUser = await user.save();
 
-        // Send back sanitized data
         res.status(200).json({
             message: 'Profile updated successfully',
             user: {
@@ -170,5 +122,77 @@ exports.updateUserProfile = async (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ message: 'Server error during profile update', error: error.message });
+    }
+};
+
+// --- Generic/Admin Routes (Best practice to secure these) ---
+
+exports.getAllUsers = async (req, res) => {
+    try {
+        const users = await User.find().select('-password');
+        res.status(200).json(users);
+    } catch (error) {
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+exports.getUserById = async (req, res) => {
+    try {
+        const user = await User.findById(req.params.id).select('-password');
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.status(200).json(user);
+    } catch (error) {
+        if (error.kind === 'ObjectId') {
+             return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// 5️⃣ Update User (Admin-level route - allows updating ANY user)
+exports.updateUser = async (req, res) => {
+    if (!req.body || Object.keys(req.body).length === 0) {
+        return res.status(400).json({ message: 'Request body is empty. Nothing to update.' });
+    }
+
+    const { username, email, phone, password } = req.body;
+    
+    try {
+        const user = await User.findById(req.params.id);
+        
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        } 
+
+        if (username) user.username = username;
+        if (email) user.email = email;
+        if (phone) user.phone = phone;
+        if (password) user.password = await bcrypt.hash(password, 10);
+
+        await user.save();
+        
+        res.status(200).json({ 
+            message: 'User updated successfully', 
+            user: { _id: user._id, username: user.username, email: user.email, phone: user.phone } 
+        });
+    } catch (error) {
+        if (error.kind === 'ObjectId') {
+             return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+// 6️⃣ Delete User (Admin-level route - allows deleting ANY user)
+exports.deleteUser = async (req, res) => {
+    try {
+        const user = await User.findByIdAndDelete(req.params.id);
+        if (!user) return res.status(404).json({ message: 'User not found' });
+        res.status(200).json({ message: 'User deleted successfully' });
+    } catch (error) {
+        if (error.kind === 'ObjectId') {
+             return res.status(400).json({ message: 'Invalid User ID format.' });
+        }
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };

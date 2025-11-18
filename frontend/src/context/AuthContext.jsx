@@ -1,5 +1,4 @@
 import React, { createContext, useState, useContext } from 'react';
-// REMOVED: import { useNavigate } from 'react-router-dom'; 
 
 const AuthContext = createContext();
 
@@ -7,8 +6,7 @@ export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }) => {
     
-    // REMOVED: const navigate = useNavigate(); 
-
+    // NOTE: Using localStorage as a simple storage solution for this environment.
     const [user, setUser] = useState(() => {
         try {
             const storedUser = localStorage.getItem('user');
@@ -20,6 +18,9 @@ export const AuthProvider = ({ children }) => {
         }
     });
     const [token, setToken] = useState(localStorage.getItem('token') || null);
+    
+    // NOTE: Replace this placeholder URL with your actual backend URL
+    const API_URL = 'http://localhost:5000/api/user'; 
 
     const login = (newToken, userData) => {
         localStorage.setItem('token', newToken);
@@ -35,31 +36,29 @@ export const AuthProvider = ({ children }) => {
         setToken(null);
         setUser(null);
         
-        // REMOVED: navigate('/login'); 
-        
-        // **THIS IS THE CRITICAL PART OF THE FIX:** // Force a full page reload. This clears all local component state
-        // and forces the app to re-check the empty token, which should 
-        // trigger your route guard to redirect to the login page.
+        // Force a full page reload to reset application state after logout
         window.location.reload(); 
     };
 
-    // CORE FUNCTION: Updates user data both locally and on the server
+    // CORE FUNCTION: Updates user data using the protected /profile endpoint
     const updateUser = async (newUserData) => {
         
-        // 1. Pre-flight check: ensure user and ID are available
-        if (!user || !user._id) {
-            throw new Error("User ID not available. Please log in again.");
+        // 1. Pre-flight check: ensure token is available
+        if (!token) {
+            throw new Error("Authentication token not available. Please log in.");
         }
         
-        // Use the unprotected /api/user/:id endpoint (MUST match backend router)
-        const url = `http://localhost:5000/api/user/${user._id}`;
+        // ⭐️ IMPORTANT FIX: Use the protected /profile endpoint
+        const url = `${API_URL}/profile`;
         
         try {
-            // 2. Execute the PUT request
+            // 2. Execute the PUT request with Authorization header
             const response = await fetch(url, { 
                 method: 'PUT', 
                 headers: {
                     'Content-Type': 'application/json',
+                    // 🔑 CRITICAL: Send the token to authenticate the request
+                    'Authorization': `Bearer ${token}`, 
                 },
                 body: JSON.stringify(newUserData),
             });

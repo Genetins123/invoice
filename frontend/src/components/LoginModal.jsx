@@ -1,5 +1,5 @@
 import React from 'react';
-import AuthForm from './AuthForm';
+import AuthForm from './AuthForm.jsx'; // ⭐️ FIX: Added .jsx extension
 import { XMarkIcon } from '@heroicons/react/24/outline'; // Close icon
 
 const LoginModal = ({ isOpen, onClose }) => {
@@ -39,4 +39,4 @@ const LoginModal = ({ isOpen, onClose }) => {
     );
 };
 
-export default LoginModal;
+export default LoginModal;  

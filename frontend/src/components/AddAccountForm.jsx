@@ -1,20 +1,28 @@
 import React, { useState } from 'react';
+import { useAuth } from '../context/AuthContext'; // ⭐ FIX: Updated the path to a standard location
 
-// API logic handled in parent (AccountPage) for better data refreshing,
-// but included internal logic here as requested, passing 'refreshList' instead of 'onSubmit'.
 const API_URL = 'http://localhost:5000/api/accounts';
 
 const AddAccountForm = ({ onCancel, refreshList }) => {
+    // ⭐ Use the hook to get the token directly from the context
+    const { token } = useAuth();
     const [isSubmitting, setIsSubmitting] = useState(false);
     
     const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
         
+        // The token is now guaranteed to be the value from AuthContext state
+        if (!token) {
+            // If the token is null, the user is not authenticated
+            alert('Authentication Error: Token not found. Please log in again.');
+            setIsSubmitting(false);
+            return;
+        }
+        
         const formData = {
             accountNo: e.target.accountNo.value,
             name: e.target.name.value,
-            // Use 'initialBalance' key in frontend, which backend maps to 'balance'
             initialBalance: parseFloat(e.target.initialBalance.value), 
             note: e.target.note.value,
         };
@@ -22,7 +30,11 @@ const AddAccountForm = ({ onCancel, refreshList }) => {
         try {
             const response = await fetch(API_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    // Pass the context-provided token in the Authorization header
+                    'Authorization': `Bearer ${token}` 
+                },
                 body: JSON.stringify(formData),
             });
 
@@ -33,7 +45,8 @@ const AddAccountForm = ({ onCancel, refreshList }) => {
                 onCancel(); 
                 if (refreshList) { refreshList(); }
             } else {
-                alert(`Failed to add account: ${data.error || 'Server error'}`);
+                // If the backend returns a 401 Unauthorized, this catches it
+                alert(`Failed to add account: ${data.error || 'Server error'}. Status: ${response.status}`);
             }
 
         } catch (error) {
