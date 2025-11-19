@@ -175,5 +175,72 @@ router.put('/:id', protect, async (req, res) => {
         res.status(500).json({ message: 'Failed to update invoice', error: error.message });
     }
 });
+// UPDATE INVOICE ITEMS
+router.patch('/:id', protect, async (req, res) => {
+    try {
+        const {
+            lineItems,
+            totalWithoutVAT,
+            totalVAT,
+            total,
+            note
+        } = req.body;
+
+        const itemsForSchema = lineItems.map(item => ({
+            productID: item.productID,
+            productName: item.productName,
+            price: parseFloat(item.price),
+            discountPercent: parseFloat(item.discountPercent || 0),
+            amount: parseInt(item.amount),
+            totalLineItem: parseFloat(item.totalLineItem),
+        }));
+
+        const updatedInvoice = await Invoice.findOneAndUpdate(
+            { _id: req.params.id, owner: req.user.id },
+            {
+                $set: {
+                    items: itemsForSchema,
+                    totalWithoutVAT: parseFloat(totalWithoutVAT),
+                    totalVAT: parseFloat(totalVAT),
+                    total: parseFloat(total),
+                    notes: note || ""
+                }
+            },
+            { new: true, runValidators: true }
+        );
+
+        if (!updatedInvoice) {
+            return res.status(404).json({ message: "Invoice not found" });
+        }
+
+        res.status(200).json({
+            message: "Invoice items updated successfully",
+            invoice: updatedInvoice
+        });
+
+    } catch (error) {
+        console.error("Invoice UPDATE ERROR:", error);
+        res.status(500).json({ message: "Failed to update invoice", error: error.message });
+    }
+});
+// 🔥 DELETE INVOICE
+router.delete('/:id', protect, async (req, res) => {
+    try {
+        const deletedInvoice = await Invoice.findOneAndDelete({
+            _id: req.params.id,
+            owner: req.user.id,   // ⛔ Prevent deleting others' invoices
+        });
+
+        if (!deletedInvoice) {
+            return res.status(404).json({ message: "Invoice not found or unauthorized" });
+        }
+
+        res.status(200).json({ message: "Invoice deleted successfully" });
+
+    } catch (error) {
+        console.error("Invoice DELETE ERROR:", error);
+        res.status(500).json({ message: "Failed to delete invoice", error: error.message });
+    }
+});
 
 module.exports = router;
